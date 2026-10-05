@@ -1,7 +1,7 @@
 // Dek kartu dan penilai tangan. Kartu = {r: 2..14, s: 0..3}
 Poker.Eval = (function () {
-  const NAMES = ['Kartu tertinggi', 'Satu pasang', 'Dua pasang', 'Tiga sejenis', 'Straight',
-                 'Flush', 'Full house', 'Empat sejenis', 'Straight flush'];
+  const NAMES = ['High Card', 'One Pair', 'Two Pair', 'Three of a Kind', 'Straight',
+                 'Flush', 'Full House', 'Four of a Kind', 'Straight Flush'];
 
   function eval5(c) {
     const r = c.map(x => x.r).sort((a, b) => b - a), fl = c.every(x => x.s == c[0].s);
@@ -20,15 +20,15 @@ Poker.Eval = (function () {
     return [cat, ...k.concat([0, 0, 0, 0]).slice(0, 5)];
   }
 
-  // Tangan terbaik dari 5-7 kartu -> {score, name}
+  // Tangan terbaik dari 5-7 kartu -> {score, name, cards (5 kartu pembentuk hand)}
   function best(cards) {
-    let b = { score: -1, cat: 0 };
+    let b = { score: -1 };
     for (let i = 0; i < cards.length; i++) for (let j = i + 1; j < cards.length; j++) {
-      const e = eval5(cards.filter((_, x) => x != i && x != j));
+      const h = cards.filter((_, x) => x != i && x != j), e = eval5(h);
       const score = e.reduce((a, x) => a * 15 + x, 0);
-      if (score > b.score) b = { score, cat: e[0] };
+      if (score > b.score) b = { score, cat: e[0], top: e[1], hand: h };
     }
-    return { score: b.score, name: NAMES[b.cat] };
+    return { score: b.score, name: b.cat == 8 && b.top == 14 ? 'Royal Flush' : NAMES[b.cat], cards: b.hand.slice().sort((x, y) => y.r - x.r) };
   }
 
   function makeDeck() {

@@ -14,6 +14,7 @@
     location.href = 'table/?' + new URLSearchParams({ name, ...params });
   }
 
+  document.querySelectorAll('.gd').forEach(b => b.onclick = () => Poker.Guide.open());
   $('mk').onclick = () => go({ mode: 'host' });
   $('jn').onclick = () => {
     const code = $('code').value.trim().toUpperCase();

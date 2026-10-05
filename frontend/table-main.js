@@ -13,7 +13,8 @@
       UI.render(engine.view(0));
       engine.players().forEach((p, i) => { if (i) net.sendTo(p.id, { t: 'state', s: engine.view(i) }); });
     });
-    UI.init({ isHost: true, onStart: () => engine.start(), onAction: (a, amt) => engine.act(0, a, amt) });
+    UI.init({ isHost: true, onStart: () => engine.start(), onAction: (a, amt) => engine.act(0, a, amt),
+      onChips: n => UI.setStatus(engine.setStartChips(n) ? '' : 'Chip awal harus antara ' + Poker.CONFIG.BB * 2 + ' dan 1.000.000.') });
 
     const net = Poker.Net.host(code, {
       onOpen() { UI.setStatus(''); UI.showRoom(code, true, invite); engine.addPlayer('host', name); },

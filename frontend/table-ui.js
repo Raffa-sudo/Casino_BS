@@ -3,20 +3,36 @@ Poker.UI = (function () {
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const SU = ['♠', '♥', '♦', '♣'], RK = ['', '', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-  const STG = ['Pre-flop', 'Flop', 'Turn', 'River', '', 'Selesai'];
+  const STG = ['Pre-flop', 'Flop', 'Turn', 'River', '', 'Hand over'];
+  const TOAST = ['', 'Flop — 3 community cards', 'Turn — community card ke-4', 'River — community card ke-5'];
   const ANG = [125, 160, 200, 235, 305, 340, 20, 55], AX = 41, BY = 38; // sudut kursi di tepi oval (kiri → atas → kanan)
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let cfg = { isHost: false, onStart() {}, onAction() {} }, invite = '';
-  let seen = new Set(), busy = 0, pending = null, timer = 0, actKey = '', lastHand = -1, lastStage = -1;
+  let cfg = { isHost: false, onStart() {}, onAction() {}, onChips() {} }, invite = '';
+  let seen = new Set(), busy = 0, pending = null, timer = 0, actKey = '', lastHand = -1, lastStage = -1, hl = new Set();
 
   const setStatus = t => $('st').textContent = t;
-  const card = (c, k, extra) => c
-    ? `<span class="c ${c.s == 1 || c.s == 2 ? 'r' : ''}" data-k="${k}" data-up="1" ${extra || ''}>${RK[c.r]}${SU[c.s]}</span>`
-    : `<span class="c b" data-k="${k}" ${extra || ''}></span>`;
+  const card = (c, k, extra, board) => {
+    if (!c) return `<span class="c b" data-k="${k}" ${extra || ''}></span>`;
+    const on = hl.has(c.r + '-' + c.s);
+    return `<span class="c ${c.s == 1 || c.s == 2 ? 'r' : ''} ${on ? 'hl' : hl.size && board ? 'dim' : ''}" data-k="${k}" data-up="1" ${extra || ''}>${RK[c.r]}${SU[c.s]}</span>`;
+  };
+  const stageName = s => s.stage == 5 ? (s.result && s.result.showdown ? 'Showdown' : 'Hand over') : STG[s.stage];
+  const cardsTxt = cs => cs.map(c => RK[c.r] + SU[c.s]).join(' ');
+  // Panel hasil: siapa menang, dengan hand apa, kartu pembentuknya, dan siapa yang dikalahkan.
+  const resultHtml = r => r.pots.map((p, i) => {
+    const w = esc(p.winners.join(' & ')), lbl = r.pots.length > 1 ? (i ? ' (Side pot)' : ' (Main pot)') : '';
+    if (p.uncontested) return `<div><b>★ ${w} menang ${p.amount} chip</b>Semua lawan fold</div>`;
+    return `<div><b>★ ${w} ${p.winners.length > 1 ? 'split pot' : 'menang'} ${p.amount} chip${lbl}</b>${esc(p.hand)}: ${cardsTxt(p.cards)}` +
+      (p.beaten.length ? `<div class="bt2">mengalahkan ${p.beaten.map(b => esc(b.name) + ' (' + esc(b.hand) + ')').join(', ')}</div>` : '') + '</div>';
+  }).join('');
 
   function init(c) {
     cfg = c;
     $('startBtn').onclick = () => cfg.onStart();
+    $('chipsBtn').onclick = () => cfg.onChips($('chipsIn').value);
+    $('chipsIn').oninput = () => $('chipsIn').value = $('chipsIn').value.replace(/\D/g, '').slice(0, 7);
+    $('chipsIn').onkeydown = e => { if (e.key == 'Enter') $('chipsBtn').click(); };
+    document.querySelectorAll('.gd').forEach(b => b.onclick = () => Poker.Guide.open());
     $('cp').onclick = () => (navigator.clipboard ? navigator.clipboard.writeText(invite) : Promise.reject())
       .then(() => setStatus('Tautan disalin.')).catch(() => setStatus(invite));
     document.querySelectorAll('.fs').forEach(b => b.onclick = () => {
@@ -82,15 +98,19 @@ Poker.UI = (function () {
     $('lobby').hidden = s.started; $('game').hidden = !s.started;
     if (!s.started) {
       $('plist').innerHTML = s.players.map(p => `<li>${esc(p.name)}</li>`).join('');
-      $('startBtn').hidden = !cfg.isHost || s.players.length < 2; return;
+      $('startBtn').hidden = !cfg.isHost || s.players.length < 2;
+      $('chipsRow').hidden = !cfg.isHost; $('chipsInfo').hidden = cfg.isHost; $('chipsInfo').textContent = 'Chip awal tiap pemain: ' + s.startChips;
+      if (document.activeElement != $('chipsIn')) $('chipsIn').value = s.startChips;
+      return;
     }
     const n = s.players.length, pos = layout(n, s.me);
-    const label = s.hand != lastHand ? 'Tangan #' + s.hand + ' — kartu dibagikan' : (s.stage >= 1 && s.stage <= 3 && s.stage != lastStage ? STG[s.stage] : '');
+    const label = s.hand != lastHand ? 'Hand #' + s.hand + ' — hole cards dibagikan' : (s.stage != lastStage ? TOAST[s.stage] : '');
     lastHand = s.hand; lastStage = s.stage;
-    $('hno').textContent = 'Tangan #' + s.hand + ' · ' + STG[s.stage] + ' · Blind ' + Poker.CONFIG.SB + '/' + Poker.CONFIG.BB;
+    $('hno').textContent = 'Hand #' + s.hand + ' · ' + stageName(s) + ' · Blinds ' + Poker.CONFIG.SB + '/' + Poker.CONFIG.BB;
     $('pot').textContent = 'Pot ' + s.pot;
-    $('msg').textContent = s.log[s.log.length - 1] || '';
-    $('board').innerHTML = Array.from({ length: 5 }, (_, i) => s.board[i] ? card(s.board[i], `h${s.hand}-b${i}`, `data-bi="${i}"`) : '<span class="c e"></span>').join('');
+    hl = new Set(((s.result && s.result.pots[0] && s.result.pots[0].cards) || []).map(c => c.r + '-' + c.s));
+    $('msg').textContent = s.log[s.log.length - 1] || ''; $('msg').hidden = !!s.result;
+    $('board').innerHTML = Array.from({ length: 5 }, (_, i) => s.board[i] ? card(s.board[i], `h${s.hand}-b${i}`, `data-bi="${i}"`, true) : '<span class="c e"></span>').join('');
     $('burn').innerHTML = Array.from({ length: s.burn }, (_, i) => `<span class="c b" data-k="h${s.hand}-x${i}" data-x="1" data-bi="${i}" style="left:${i * 4}px;top:${i * 3}px"></span>`).join('');
     const over = $('over'); over.hidden = !s.over; if (s.over) over.textContent = 'Pemenang akhir: ' + s.over;
 
@@ -98,14 +118,16 @@ Poker.UI = (function () {
       const [x, y] = pos[i], cls = y < 30 ? 'top' : y > 70 ? 'bot' : x < 50 ? 'left' : 'right';
       const order = ((i - s.dealer - 1) % n + n) % n; // urutan pembagian: mulai dari kiri dealer
       const tags = (i == s.dealer ? '<span class="tag d">D</span>' : '') + (i == s.sb ? '<span class="tag sb">SB</span>' : '') + (i == s.bb ? '<span class="tag bb">BB</span>' : '');
-      const info = p.win ? 'MENANG' : p.res || (p.out ? '' : p.folded ? 'fold' : p.allin ? 'all-in' : '');
+      const info = p.win ? '★ ' + (p.res || 'Winner') : p.res || (p.out ? '' : p.folded ? 'fold' : p.allin ? 'all-in' : '');
       const bet = p.bet > 0 ? `<span class="bet" style="left:${x + (50 - x) * .45}%;top:${y + (50 - y) * .45}%">${p.bet}</span>` : '';
       return `<div class="seat ${cls} ${i == s.me ? 'me' : ''} ${i == s.turn ? 'turn' : ''} ${p.folded ? 'fold' : ''} ${p.win ? 'win' : ''}" style="left:${x}%;top:${y}%">
-        <div class="pill"><div class="nm">${esc(p.name)}${tags}</div><div class="ch">${p.out ? 'tersingkir' : p.chips + ' chip'}</div><div class="rs">${info}</div></div>
+        <div class="pill"><div class="nm">${esc(p.name)}${tags}</div><div class="ch">${p.out ? 'Busted' : p.chips + ' chip'}</div><div class="rs">${info}</div></div>
         <div class="cards">${p.hand.map((c, k) => card(c, `h${s.hand}-p${i}-${k}`, `data-d="${(k * n + order) * .14}"`)).join('')}</div></div>${bet}`;
     }).join('');
 
     animate();
+    const rs = $('result'); rs.hidden = !s.result; // panel hasil muncul setelah animasi kartu selesai
+    if (s.result) { rs.innerHTML = resultHtml(s.result); rs.style.animationDelay = Math.max(0, busy - Date.now()) + 'ms'; }
     if (label) toast(label);
     renderAct(s);
   }
@@ -114,10 +136,10 @@ Poker.UI = (function () {
     const a = $('act'), me = s.players[s.me], key = [s.hand, s.stage, s.turn, s.cur, me.chips, s.over].join();
     if (key == actKey) return; actKey = key;
     if (s.turn != s.me || s.over || s.stage > 3) {
-      a.innerHTML = `<span class="wt">${s.over ? 'Game selesai' : s.stage == 5 ? 'Ronde selesai — tangan berikutnya segera dibagikan…' : s.turn >= 0 ? 'Menunggu ' + esc(s.players[s.turn].name) + '…' : ''}</span>`; return;
+      a.innerHTML = `<span class="wt">${s.over ? 'Game selesai' : s.stage == 5 ? 'Hand selesai — hand berikutnya segera dimulai…' : s.turn >= 0 ? 'Menunggu ' + esc(s.players[s.turn].name) + '…' : ''}</span>`; return;
     }
     const toCall = Math.min(s.cur - me.bet, me.chips), max = me.chips + me.bet, min = Math.min(s.cur + s.minR, max);
-    a.innerHTML = `<button class="ab fold" id="bf">Fold</button><button class="ab call" id="bc">${toCall ? 'Call ' + toCall : 'Check'}</button>` +
+    a.innerHTML = `<button class="ab fold" id="bf" title="Fold: menyerah dan keluar dari hand ini">Fold</button><button class="ab call" id="bc" title="${toCall ? 'Call: samakan taruhan terakhir' : 'Check: lanjut tanpa menambah taruhan'}">${toCall ? 'Call ' + toCall : 'Check'}</button>` +
       (max > s.cur ? `<div class="rz"><input id="ri" inputmode="numeric" autocomplete="off" placeholder="${min}" aria-label="Jumlah taruhan"><div class="qk">${['Min', '½ Pot', 'Pot', 'Max'].map((t, i) => `<button data-q="${i}">${t}</button>`).join('')}</div><button class="ab raise" id="br"></button></div><span id="pv"></span>` : '');
     $('bf').onclick = () => cfg.onAction('fold');
     $('bc').onclick = () => cfg.onAction('call');
@@ -127,8 +149,8 @@ Poker.UI = (function () {
     const upd = () => { // angka >= semua chip otomatis menjadi ALL-IN
       const v = parseInt(ri.value) || 0;
       if (v >= max) { br.className = 'ab allin'; br.textContent = 'ALL-IN ' + max; br.disabled = false; pv.textContent = 'Keluar ' + (max - me.bet) + ' chip'; }
-      else if (v >= min) { br.className = 'ab raise'; br.textContent = (s.cur ? 'Raise ke ' : 'Bet ') + v; br.disabled = false; pv.textContent = 'Keluar ' + (v - me.bet) + ' chip'; }
-      else { br.className = 'ab raise'; br.textContent = s.cur ? 'Raise' : 'Bet'; br.disabled = true; pv.textContent = 'Minimal ' + min; }
+      else if (v >= min) { br.className = 'ab raise'; br.textContent = (s.cur ? 'Raise to ' : 'Bet ') + v; br.disabled = false; pv.textContent = 'Keluar ' + (v - me.bet) + ' chip'; }
+      else { br.className = 'ab raise'; br.textContent = s.cur ? 'Raise' : 'Bet'; br.disabled = true; pv.textContent = 'Min ' + min; }
     };
     ri.oninput = () => { ri.value = ri.value.replace(/\D/g, '').slice(0, 9); upd(); };
     ri.onkeydown = e => { if (e.key == 'Enter' && !br.disabled) br.click(); };
