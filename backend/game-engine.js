@@ -2,7 +2,7 @@
 // Dijalankan hanya di browser tuan rumah. onChange() dipanggil setiap state berubah.
 Poker.createEngine = function (onChange) {
   const { SB, BB, START, MAX_PLAYERS, NEXT_HAND_MS } = Poker.CONFIG;
-  const G = { started: false, players: [], log: [], stage: 0, board: [], turn: -1, dealer: -1, cur: 0, minR: BB, over: null, show: false };
+  const G = { started: false, players: [], log: [], stage: 0, board: [], turn: -1, dealer: -1, cur: 0, minR: BB, over: null, show: false, hand: 0, sb: -1, bb: -1 };
 
   const canAct = p => !p.folded && !p.allin && !p.out;
   const nx = (i, f) => { const P = G.players; for (let k = 1; k <= P.length; k++) { const j = ((i + k) % P.length + P.length) % P.length; if (f(P[j])) return j; } return i; };
@@ -14,10 +14,10 @@ Poker.createEngine = function (onChange) {
     P.forEach(p => { if (p.chips <= 0 || p.gone) p.out = true; });
     const live = P.filter(p => !p.out);
     if (live.length < 2) { G.over = live[0] ? live[0].name : '-'; G.stage = 5; G.turn = -1; G.show = false; return onChange(); }
-    G.dealer = nx(G.dealer, p => !p.out); G.deck = Poker.Eval.makeDeck(); G.board = []; G.stage = 0; G.show = false;
-    P.forEach(p => { p.bet = 0; p.total = 0; p.folded = !!p.out; p.allin = false; p.acted = false; p.res = ''; p.hand = p.out ? [] : [G.deck.pop(), G.deck.pop()]; });
+    G.hand++; G.dealer = nx(G.dealer, p => !p.out); G.deck = Poker.Eval.makeDeck(); G.board = []; G.stage = 0; G.show = false;
+    P.forEach(p => { p.bet = 0; p.total = 0; p.folded = !!p.out; p.allin = false; p.acted = false; p.res = ''; p.win = false; p.hand = p.out ? [] : [G.deck.pop(), G.deck.pop()]; });
     const sb = live.length == 2 ? G.dealer : nx(G.dealer, p => !p.out), bb = nx(sb, p => !p.out);
-    pay(P[sb], SB); pay(P[bb], BB); G.cur = BB; G.minR = BB; G.turn = bb;
+    pay(P[sb], SB); pay(P[bb], BB); G.sb = sb; G.bb = bb; G.cur = BB; G.minR = BB; G.turn = bb;
     lg('— Tangan baru. Dealer: ' + P[G.dealer].name + ' —');
     proceed();
   }
@@ -42,6 +42,7 @@ Poker.createEngine = function (onChange) {
     G.players.forEach(p => { p.bet = 0; p.acted = false; });
     G.cur = 0; G.minR = BB; G.stage++;
     if (G.stage == 4) return finish(true);
+    G.deck.pop(); // kartu bakar: dealer membuang kartu teratas, lalu membagikan kartu berikutnya
     for (let i = 0; i < (G.stage == 1 ? 3 : 1); i++) G.board.push(G.deck.pop());
     G.turn = G.dealer; proceed();
   }
@@ -62,14 +63,14 @@ Poker.createEngine = function (onChange) {
   function finish(show) {
     const P = G.players; G.stage = 5; G.turn = -1; G.show = show;
     const alive = P.filter(p => !p.folded), tot = P.reduce((a, p) => a + p.total, 0);
-    if (!show) { alive[0].chips += tot; lg(alive[0].name + ' menang ' + tot + ' (lawan fold)'); }
+    if (!show) { alive[0].chips += tot; alive[0].win = true; lg(alive[0].name + ' menang ' + tot + ' (lawan fold)'); }
     else {
       alive.forEach(p => { const b = Poker.Eval.best(p.hand.concat(G.board)); p.sc = b.score; p.res = b.name; });
       let prev = 0; // bagi pot per level kontribusi (side pot)
       [...new Set(alive.map(p => p.total))].sort((a, b) => a - b).forEach(L => {
         let pot = 0; P.forEach(p => pot += Math.min(p.total, L) - Math.min(p.total, prev)); prev = L;
         const el = alive.filter(p => p.total >= L), m = Math.max(...el.map(p => p.sc)), w = el.filter(p => p.sc == m);
-        const sh = Math.floor(pot / w.length); w.forEach(p => p.chips += sh); w[0].chips += pot - sh * w.length;
+        const sh = Math.floor(pot / w.length); w.forEach(p => { p.chips += sh; p.win = true; }); w[0].chips += pot - sh * w.length;
         lg(w.map(p => p.name).join(' & ') + ' menang ' + pot + ' dengan ' + w[0].res);
       });
     }
@@ -80,13 +81,14 @@ Poker.createEngine = function (onChange) {
 
   // State yang dikirim ke pemain i: kartu lawan disembunyikan sampai showdown.
   function view(i) {
-    const P = G.players, sd = G.stage == 5 && G.show;
+    const P = G.players, sd = G.stage == 5; // akhir ronde: semua kartu dibuka
     return {
-      started: G.started, stage: G.stage, board: G.board, pot: P.reduce((a, p) => a + (p.total || 0), 0),
+      started: G.started, stage: G.stage, board: G.board, hand: G.hand, sb: G.sb, bb: G.bb,
+      burn: G.board.length >= 5 ? 3 : G.board.length >= 4 ? 2 : G.board.length >= 3 ? 1 : 0, pot: P.reduce((a, p) => a + (p.total || 0), 0),
       turn: G.turn, dealer: G.dealer, cur: G.cur, minR: G.minR, me: i, log: G.log.slice(-6), over: G.over,
       players: P.map((p, j) => ({
-        name: p.name, chips: p.chips, bet: p.bet || 0, folded: p.folded, allin: p.allin, out: p.out, res: p.res,
-        hand: !p.hand ? [] : (j == i || (sd && !p.folded)) ? p.hand : p.hand.length ? [null, null] : []
+        name: p.name, chips: p.chips, bet: p.bet || 0, folded: p.folded, allin: p.allin, out: p.out, res: p.res, win: !!p.win,
+        hand: !p.hand ? [] : (j == i || sd) ? p.hand : p.hand.length ? [null, null] : []
       }))
     };
   }
