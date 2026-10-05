@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meja — Hold'em</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+<main>
+  <a class="back" href="../index.html">‹ Keluar dari meja</a>
+
+  <section id="lobby">
+    <h1>Ruang tunggu</h1>
+    <div id="room" class="box" hidden>
+      <div>Kode meja: <b id="rc" style="font-size:1.4rem;color:var(--gold);letter-spacing:.1em"></b></div>
+      <div class="row" id="shr"><button class="sec" id="cp">Salin tautan undangan</button></div>
+      <div>Pemain di meja:</div><ul id="plist"></ul>
+      <div class="row"><button id="startBtn" hidden>Mulai game</button></div>
+      <div id="wait" class="sub" hidden>Menunggu tuan rumah memulai…</div>
+    </div>
+    <div id="st">Menyiapkan meja…</div>
+  </section>
+
+  <section id="game" hidden>
+    <div id="over" class="win" hidden></div>
+    <div class="table">
+      <div class="stage" id="stage"></div>
+      <div class="pot" id="pot"></div>
+      <div class="board" id="board"></div>
+    </div>
+    <div class="pls" id="pls"></div>
+    <div id="act" hidden></div>
+    <div class="box" id="log"></div>
+  </section>
+</main>
+
+<!-- Back-end (logika, tanpa DOM) -->
+<script src="../backend/config.js"></script>
+<script src="../backend/hand-evaluator.js"></script>
+<script src="../backend/game-engine.js"></script>
+<script src="../backend/network.js"></script>
+<!-- Front-end (tampilan) -->
+<script src="../frontend/table-ui.js"></script>
+<script src="../frontend/table-main.js"></script>
+</body>
+</html>
