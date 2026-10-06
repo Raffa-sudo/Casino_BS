@@ -1,4 +1,5 @@
-// Tampilan meja (landscape): kursi 1–8, animasi kartu, panel aksi. Hanya menggambar state yang diterima.
+// Tampilan meja Texas Hold'em (landscape): kursi 1–8, animasi kartu, panel aksi. Hanya menggambar state yang diterima.
+// Ruang tunggu, status koneksi, dan tombol layar penuh ada di lobby.js.
 Poker.UI = (function () {
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -7,10 +8,9 @@ Poker.UI = (function () {
   const TOAST = ['', 'Flop — 3 community cards', 'Turn — community card ke-4', 'River — community card ke-5'];
   const ANG = [125, 160, 200, 235, 305, 340, 20, 55], AX = 41, BY = 38; // sudut kursi di tepi oval (kiri → atas → kanan)
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let cfg = { isHost: false, onStart() {}, onAction() {}, onChips() {} }, invite = '';
-  let seen = new Set(), busy = 0, pending = null, timer = 0, actKey = '', lastHand = -1, lastStage = -1, hl = new Set();
+  let cfg = { isHost: false, onAction() {}, onNext() {} };
+  let seen = new Set(), busy = 0, pending = null, timer = 0, actKey = '', lastHand = -1, lastStage = -1, lastGid = 0, hl = new Set();
 
-  const setStatus = t => $('st').textContent = t;
   const card = (c, k, extra, board) => {
     if (!c) return `<span class="c b" data-k="${k}" ${extra || ''}></span>`;
     const on = hl.has(c.r + '-' + c.s);
@@ -28,22 +28,14 @@ Poker.UI = (function () {
 
   function init(c) {
     cfg = c;
-    $('startBtn').onclick = () => cfg.onStart();
-    $('chipsBtn').onclick = () => cfg.onChips($('chipsIn').value);
-    $('chipsIn').oninput = () => $('chipsIn').value = $('chipsIn').value.replace(/\D/g, '').slice(0, 7);
-    $('chipsIn').onkeydown = e => { if (e.key == 'Enter') $('chipsBtn').click(); };
-    document.querySelectorAll('.gd').forEach(b => b.onclick = () => Poker.Guide.open());
-    $('cp').onclick = () => (navigator.clipboard ? navigator.clipboard.writeText(invite) : Promise.reject())
-      .then(() => setStatus('Tautan disalin.')).catch(() => setStatus(invite));
-    document.querySelectorAll('.fs').forEach(b => b.onclick = () => {
-      const d = document.documentElement;
-      (d.requestFullscreen ? d.requestFullscreen() : Promise.reject())
-        .then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape')).catch(() => {});
-    });
+    // Mouse-down pada tombol aksi tidak boleh memindahkan fokus: kalau input taruhan sedang fokus, keyboard layar menutup dan
+    // tata letak bergeser sebelum tap selesai, sehingga tombol "tidak terasa" ditekan.
+    $('act').addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
   }
-  function showRoom(code, isHost, inviteUrl) {
-    invite = inviteUrl || ''; $('room').hidden = false; $('rc').textContent = code;
-    $('shr').hidden = !isHost; $('wait').hidden = isHost;
+  // Dipanggil saat kembali ke ruang tunggu: buang semua sisa animasi dan cache tampilan.
+  function leave() {
+    clearTimeout(timer); pending = null; busy = 0; seen = new Set(); actKey = ''; lastHand = -1; lastStage = -1; hl = new Set();
+    $('act').innerHTML = ''; $('result').hidden = true;
   }
 
   // Posisi tiap pemain: pemain ini selalu di bawah-tengah, lainnya searah jarum jam; tengah-atas dikosongkan untuk dealer.
@@ -92,17 +84,12 @@ Poker.UI = (function () {
   }
 
   function render(s) {
-    // Tunda render selama animasi kartu masih berjalan (hanya state terbaru yang dipakai).
-    if (Date.now() < busy) { pending = s; clearTimeout(timer); timer = setTimeout(() => { const p = pending; pending = null; render(p); }, busy - Date.now()); return; }
-    document.body.classList.toggle('playing', s.started);
-    $('lobby').hidden = s.started; $('game').hidden = !s.started;
-    if (!s.started) {
-      $('plist').innerHTML = s.players.map(p => `<li>${esc(p.name)}</li>`).join('');
-      $('startBtn').hidden = !cfg.isHost || s.players.length < 2;
-      $('chipsRow').hidden = !cfg.isHost; $('chipsInfo').hidden = cfg.isHost; $('chipsInfo').textContent = 'Chip awal tiap pemain: ' + s.startChips;
-      if (document.activeElement != $('chipsIn')) $('chipsIn').value = s.startChips;
-      return;
-    }
+    if (s.gid != lastGid) { leave(); lastGid = s.gid; } // game baru (Lanjut main): mulai dari nol
+    // Panel aksi SELALU mengikuti state terbaru, tidak ikut ditunda animasi. Dulu tombol "basi" tetap tampil
+    // beberapa detik dan tap pada tombol itu diabaikan mesin karena bukan giliran lagi.
+    renderAct(s);
+    // Tunda gambar meja selama animasi kartu masih berjalan (hanya state terbaru yang dipakai).
+    if (Date.now() < busy) { pending = s; clearTimeout(timer); timer = setTimeout(() => { const p = pending; pending = null; if (p) render(p); }, busy - Date.now()); return; }
     const n = s.players.length, pos = layout(n, s.me);
     const label = s.hand != lastHand ? 'Hand #' + s.hand + ' — hole cards dibagikan' : (s.stage != lastStage ? TOAST[s.stage] : '');
     lastHand = s.hand; lastStage = s.stage;
@@ -120,8 +107,8 @@ Poker.UI = (function () {
       const tags = (i == s.dealer ? '<span class="tag d">D</span>' : '') + (i == s.sb ? '<span class="tag sb">SB</span>' : '') + (i == s.bb ? '<span class="tag bb">BB</span>' : '');
       const info = p.win ? '★ ' + (p.res || 'Winner') : p.res || (p.out ? '' : p.folded ? 'fold' : p.allin ? 'all-in' : '');
       const bet = p.bet > 0 ? `<span class="bet" style="left:${x + (50 - x) * .45}%;top:${y + (50 - y) * .45}%">${p.bet}</span>` : '';
-      return `<div class="seat ${cls} ${i == s.me ? 'me' : ''} ${i == s.turn ? 'turn' : ''} ${p.folded ? 'fold' : ''} ${p.win ? 'win' : ''}" style="left:${x}%;top:${y}%">
-        <div class="pill"><div class="nm">${esc(p.name)}${tags}</div><div class="ch">${p.out ? 'Busted' : p.chips + ' chip'}</div><div class="rs">${info}</div></div>
+      return `<div class="seat ${cls} ${i == s.me ? 'me' : ''} ${i == s.turn ? 'turn' : ''} ${p.folded ? 'fold' : ''} ${p.gone ? 'gone' : ''} ${p.win ? 'win' : ''}" style="left:${x}%;top:${y}%">
+        <div class="pill"><div class="nm">${esc(p.name)}${tags}</div><div class="ch">${p.gone ? 'Keluar' : p.out ? 'Busted' : p.chips + ' chip'}</div><div class="rs">${info}</div></div>
         <div class="cards">${p.hand.map((c, k) => card(c, `h${s.hand}-p${i}-${k}`, `data-d="${(k * n + order) * .14}"`)).join('')}</div></div>${bet}`;
     }).join('');
 
@@ -129,14 +116,20 @@ Poker.UI = (function () {
     const rs = $('result'); rs.hidden = !s.result; // panel hasil muncul setelah animasi kartu selesai
     if (s.result) { rs.innerHTML = resultHtml(s.result); rs.style.animationDelay = Math.max(0, busy - Date.now()) + 'ms'; }
     if (label) toast(label);
-    renderAct(s);
   }
 
   function renderAct(s) {
-    const a = $('act'), me = s.players[s.me], key = [s.hand, s.stage, s.turn, s.cur, me.chips, s.over].join();
+    const a = $('act'), me = s.players[s.me], key = [s.gid, s.hand, s.stage, s.turn, s.cur, me.chips, me.out, s.over, cfg.isHost].join();
     if (key == actKey) return; actKey = key;
-    if (s.turn != s.me || s.over || s.stage > 3) {
-      a.innerHTML = `<span class="wt">${s.over ? 'Game selesai' : s.stage == 5 ? 'Hand selesai — hand berikutnya segera dimulai…' : s.turn >= 0 ? 'Menunggu ' + esc(s.players[s.turn].name) + '…' : ''}</span>`; return;
+    if (s.over) { // game selesai: tuan rumah memilih berhenti (ke lobby) atau lanjut main dari awal
+      a.innerHTML = cfg.isHost
+        ? `<span class="wt">Game selesai. Pemenang: <b>${esc(s.over)}</b></span><button class="ab call" id="bagain" title="Reset semua chip ke ${s.startChips} dan mulai dari hand pertama">Lanjut main (${s.startChips} chip)</button><button class="ab fold" id="bstop" title="Kembali ke ruang tunggu; chip awal bisa diatur lagi">Berhenti</button>`
+        : `<span class="wt">Game selesai. Pemenang: <b>${esc(s.over)}</b>. Menunggu tuan rumah: lanjut main atau kembali ke lobby…</span>`;
+      if (cfg.isHost) { $('bagain').onclick = () => cfg.onNext('again'); $('bstop').onclick = () => cfg.onNext('lobby'); }
+      return;
+    }
+    if (s.turn != s.me || me.out || s.stage > 3) {
+      a.innerHTML = `<span class="wt">${me.out ? 'Kamu sudah keluar dari permainan. Menonton…' : s.stage == 5 ? 'Hand selesai — hand berikutnya segera dimulai…' : s.turn >= 0 ? 'Menunggu ' + esc(s.players[s.turn].name) + '…' : ''}</span>`; return;
     }
     const toCall = Math.min(s.cur - me.bet, me.chips), max = me.chips + me.bet, min = Math.min(s.cur + s.minR, max);
     a.innerHTML = `<button class="ab fold" id="bf" title="Fold: menyerah dan keluar dari hand ini">Fold</button><button class="ab call" id="bc" title="${toCall ? 'Call: samakan taruhan terakhir' : 'Check: lanjut tanpa menambah taruhan'}">${toCall ? 'Call ' + toCall : 'Check'}</button>` +
@@ -156,8 +149,9 @@ Poker.UI = (function () {
     ri.onkeydown = e => { if (e.key == 'Enter' && !br.disabled) br.click(); };
     a.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { ri.value = [min, frac(.5), frac(1), max][b.dataset.q]; upd(); });
     br.onclick = () => cfg.onAction('raise', Math.min(parseInt(ri.value) || 0, max));
-    upd(); if (matchMedia('(pointer:fine)').matches) ri.focus();
+    ri.value = min; upd(); // tombol Raise langsung siap dipakai (sebelumnya mati sampai angka diketik)
+    if (matchMedia('(pointer:fine)').matches) { ri.focus(); ri.select(); }
   }
 
-  return { init, showRoom, render, setStatus };
+  return { init, leave, render };
 })();

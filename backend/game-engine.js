@@ -1,8 +1,8 @@
 // Mesin game: aturan, giliran, taruhan, pot, showdown. Tidak menyentuh DOM atau jaringan.
 // Dijalankan hanya di browser tuan rumah. onChange() dipanggil setiap state berubah.
 Poker.createEngine = function (onChange) {
-  const { SB, BB, START, MAX_PLAYERS, NEXT_HAND_MS } = Poker.CONFIG;
-  const G = { started: false, players: [], log: [], stage: 0, board: [], turn: -1, dealer: -1, cur: 0, minR: BB, over: null, show: false, hand: 0, sb: -1, bb: -1, startChips: START, result: null };
+  const { SB, BB, START, MIN_PLAYERS, MAX_PLAYERS, MIN_CHIPS, NEXT_HAND_MS } = Poker.CONFIG;
+  const G = { started: false, players: [], log: [], stage: 0, board: [], turn: -1, dealer: -1, cur: 0, minR: BB, over: null, show: false, hand: 0, sb: -1, bb: -1, startChips: START, result: null, gid: 1, timer: 0 };
 
   const canAct = p => !p.folded && !p.allin && !p.out;
   const nx = (i, f) => { const P = G.players; for (let k = 1; k <= P.length; k++) { const j = ((i + k) % P.length + P.length) % P.length; if (f(P[j])) return j; } return i; };
@@ -11,10 +11,10 @@ Poker.createEngine = function (onChange) {
 
   function startHand() {
     const P = G.players;
-    P.forEach(p => { if (p.chips <= 0 || p.gone) p.out = true; });
+    P.forEach(p => { p.out = p.chips <= 0 || !!p.gone; }); // dihitung ulang tiap hand, jadi pemain yang kembali bisa ikut lagi
     const live = P.filter(p => !p.out);
     if (live.length < 2) { G.over = live[0] ? live[0].name : '-'; G.stage = 5; G.turn = -1; G.show = false; return onChange(); }
-    G.hand++; G.result = null; G.dealer = nx(G.dealer, p => !p.out); G.deck = Poker.Eval.makeDeck(); G.board = []; G.stage = 0; G.show = false;
+    G.hand++; G.result = null; G.dealer = nx(G.dealer, p => !p.out); G.deck = Casino.Deck.make(1); G.board = []; G.stage = 0; G.show = false;
     P.forEach(p => { p.bet = 0; p.total = 0; p.folded = !!p.out; p.allin = false; p.acted = false; p.res = ''; p.win = false; p.hand = p.out ? [] : [G.deck.pop(), G.deck.pop()]; });
     const sb = live.length == 2 ? G.dealer : nx(G.dealer, p => !p.out), bb = nx(sb, p => !p.out);
     pay(P[sb], SB); pay(P[bb], BB); G.sb = sb; G.bb = bb; G.cur = BB; G.minR = BB; G.turn = bb;
@@ -77,18 +77,19 @@ Poker.createEngine = function (onChange) {
     G.result = { showdown: show, pots };
     P.forEach(p => p.bet = 0);
     onChange();
-    setTimeout(() => { if (G.stage == 5 && !G.over) startHand(); }, NEXT_HAND_MS);
+    clearTimeout(G.timer); const gid = G.gid;
+    G.timer = setTimeout(() => { if (gid == G.gid && G.stage == 5 && !G.over) startHand(); }, NEXT_HAND_MS);
   }
 
   // State yang dikirim ke pemain i: kartu lawan disembunyikan sampai showdown.
   function view(i) {
     const P = G.players, sd = G.stage == 5; // akhir ronde: semua kartu dibuka
     return {
-      started: G.started, stage: G.stage, board: G.board, hand: G.hand, sb: G.sb, bb: G.bb, result: G.result, startChips: G.startChips,
+      started: G.started, gid: G.gid, stage: G.stage, board: G.board, hand: G.hand, sb: G.sb, bb: G.bb, result: G.result, startChips: G.startChips,
       burn: G.board.length >= 5 ? 3 : G.board.length >= 4 ? 2 : G.board.length >= 3 ? 1 : 0, pot: P.reduce((a, p) => a + (p.total || 0), 0),
       turn: G.turn, dealer: G.dealer, cur: G.cur, minR: G.minR, me: i, log: G.log.slice(-6), over: G.over,
       players: P.map((p, j) => ({
-        name: p.name, chips: p.chips, bet: p.bet || 0, folded: p.folded, allin: p.allin, out: p.out, res: p.res, win: !!p.win,
+        name: p.name, chips: p.chips, bet: p.bet || 0, folded: p.folded, allin: p.allin, out: p.out, gone: !!p.gone, res: p.res, win: !!p.win,
         hand: !p.hand ? [] : (j == i || sd) ? p.hand : p.hand.length ? [null, null] : []
       }))
     };
@@ -99,17 +100,38 @@ Poker.createEngine = function (onChange) {
     view,
     players: () => G.players,
     addPlayer(id, name) {
-      if (G.started) return 'Game sudah berjalan.';
+      if (G.started) { // pemain yang terputus boleh kembali ke kursinya dengan nama yang sama
+        const p = G.players.find(q => q.gone && q.name == name);
+        if (!p) return 'Game sudah berjalan.';
+        p.id = id; p.gone = false; lg(name + ' kembali ke meja'); onChange(); return null;
+      }
       if (G.players.length >= MAX_PLAYERS) return 'Meja penuh.';
       G.players.push({ id, name, chips: G.startChips }); onChange(); return null;
     },
+    // Pemain keluar / terputus: langsung fold (kartunya mati) dan tidak dianggap bermain lagi.
     removePlayer(id) {
       const i = idx(id); if (i < 0) return;
-      if (!G.started) { G.players.splice(i, 1); return onChange(); }
-      G.players[i].gone = true; if (G.turn == i) act(i, 'fold');
+      const P = G.players, p = P[i];
+      if (!G.started) { P.splice(i, 1); return onChange(); }
+      if (p.gone) return;
+      p.gone = true; lg(p.name + ' keluar dari meja');
+      if (G.stage > 3) return onChange(); // hand sudah selesai atau game over
+      if (G.turn == i) return act(i, 'fold');
+      if (!p.folded) { p.folded = true; if (P.filter(q => !q.folded).length == 1) return finish(false); }
+      onChange();
     },
-    setStartChips(n) { n = Math.floor(+n); if (G.started || !(n >= 2 * BB && n <= 1e6)) return false; G.startChips = n; G.players.forEach(p => p.chips = n); onChange(); return true; },
-    start() { if (G.started || G.players.length < 2) return; G.started = true; startHand(); },
+    setStartChips(n) { n = Math.floor(+n); if (G.started || !(n >= MIN_CHIPS && n <= 1e6)) return false; G.startChips = n; G.players.forEach(p => p.chips = n); onChange(); return true; },
+    start() { if (G.started || G.players.length < MIN_PLAYERS) return; G.started = true; startHand(); },
+    // Akhir game: 'lobby' = kembali ke ruang tunggu (chip awal bisa diatur lagi); 'again' = main lagi dari awal dengan chip awal yang sama.
+    // Pemain yang sudah keluar dibuang. Mengembalikan 'lobby' atau 'again' (jadi 'lobby' kalau pemain kurang).
+    reset(mode) {
+      clearTimeout(G.timer); G.gid++;
+      G.players = G.players.filter(p => !p.gone);
+      Object.assign(G, { started: false, stage: 0, board: [], turn: -1, dealer: -1, cur: 0, minR: BB, over: null, show: false, hand: 0, sb: -1, bb: -1, result: null, log: [] });
+      G.players.forEach(p => { p.chips = G.startChips; p.bet = 0; p.total = 0; p.folded = p.allin = p.out = p.acted = p.win = false; p.hand = []; p.res = ''; });
+      if (mode != 'again' || G.players.length < MIN_PLAYERS) { onChange(); return 'lobby'; }
+      G.started = true; startHand(); return 'again';
+    },
     act,
     actById(id, a, amt) { const i = idx(id); if (i >= 0) act(i, a, amt); }
   };

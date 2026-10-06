@@ -31,15 +31,7 @@ Poker.Eval = (function () {
     return { score: b.score, name: b.cat == 8 && b.top == 14 ? 'Royal Flush' : NAMES[b.cat], cards: b.hand.slice().sort((x, y) => y.r - x.r) };
   }
 
-  function makeDeck() {
-    const d = [];
-    for (let s = 0; s < 4; s++) for (let r = 2; r <= 14; r++) d.push({ r, s });
-    for (let i = d.length - 1; i > 0; i--) {
-      const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
-      [d[i], d[j]] = [d[j], d[i]];
-    }
-    return d;
-  }
+  const makeDeck = () => Casino.Deck.make(1);
 
   return { best, makeDeck };
 })();

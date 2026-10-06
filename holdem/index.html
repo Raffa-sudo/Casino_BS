@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Texas Hold'em — Virtual Casino</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+<main id="lobby">
+  <a class="back" href="../index.html">‹ Keluar dari meja</a>
+  <h1>Texas Hold'em</h1>
+  <p class="sub">Ruang tunggu · Virtual Casino</p>
+  <div id="room" class="box" hidden>
+    <div>Kode meja: <b id="rc" style="font-size:1.4rem;color:var(--gold);letter-spacing:.1em"></b></div>
+    <div class="row" id="shr"><button class="sec" id="cp">Salin tautan undangan</button></div>
+    <div>Pemain di meja (maks. 8):</div><ul id="plist"></ul>
+    <div id="chipsRow" class="row" hidden><input id="chipsIn" inputmode="numeric" placeholder="Chip awal per pemain" aria-label="Chip awal per pemain"><button class="sec" id="chipsBtn">Atur chip awal</button></div>
+    <div id="chipsInfo" class="sub" hidden></div>
+    <div class="row"><button class="sec gd">Guide: cara bermain Texas Hold'em</button></div>
+    <div class="row"><button id="startBtn" hidden>Mulai game</button></div>
+    <div id="wait" class="sub" hidden>Menunggu tuan rumah memulai…</div>
+  </div>
+  <div id="st">Menyiapkan meja…</div>
+</main>
+
+<section id="game" hidden>
+  <div id="hud"><a class="back" href="../index.html">‹ Keluar</a><span id="hno"></span><button class="sec gd">Guide</button><button class="sec fs">Layar penuh</button></div>
+  <div id="over" hidden></div>
+  <div id="wrap">
+    <div id="felt"></div>
+    <div id="dealer"><svg viewBox="0 0 100 100" aria-label="Dealer"><path d="M22 96Q22 54 50 52Q78 54 78 96Z" fill="#1c1c24"/><path d="M42 53L50 72L58 53Z" fill="#f3ecdc"/><path d="M44 58L50 66L56 58L50 54Z" fill="#a8231b"/><circle cx="50" cy="30" r="15" fill="#e8c9a0"/><path d="M33 22Q50 4 67 22Q50 14 33 22Z" fill="#1c1c24"/></svg></div>
+    <div id="deck" class="c b"></div>
+    <div id="burn"></div>
+    <div id="center"><div id="pot"></div><div id="board"></div><div id="msg"></div><div id="result" hidden></div></div>
+    <div id="toast"></div>
+    <div id="seats"></div>
+  </div>
+  <div id="act"></div>
+</section>
+
+<div id="net" role="alert" hidden><span id="netMsg"></span><button id="netBtn" class="sec" hidden>Gabung ulang</button><a href="../index.html">Keluar</a></div>
+
+<div id="rot"><div style="font-size:3rem">⟳</div><div>Putar perangkat ke mode landscape untuk bermain.</div><button class="fs">Layar penuh</button></div>
+
+<script src="../backend/config.js"></script>
+<script src="../backend/cards.js"></script>
+<script src="../backend/hand-evaluator.js"></script>
+<script src="../backend/game-engine.js"></script>
+<script src="../backend/network.js"></script>
+<script src="../frontend/guide.js"></script>
+<script src="../frontend/lobby.js"></script>
+<script src="../frontend/table-ui.js"></script>
+<script src="../frontend/table-main.js"></script>
+<script>Casino.runTable('holdem', Poker.createEngine, Poker.UI, Poker.CONFIG);</script>
+</body>
+</html>

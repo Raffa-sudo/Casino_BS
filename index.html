@@ -3,24 +3,31 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Meja Hold'em</title>
+<title>Virtual Casino</title>
 <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
 <main>
-  <h1>Meja Hold'em</h1>
-  <p class="sub">Poker Texas Hold'em untuk 2–8 pemain. Chip hanya mainan, tanpa uang sungguhan.</p>
+  <h1 class="brand">Virtual Casino</h1>
+  <p class="sub">Main bareng teman, langsung dari browser. Chip hanya mainan, tanpa uang sungguhan.</p>
   <div class="box">
     <input id="name" placeholder="Nama kamu" maxlength="14" autocomplete="off">
+  </div>
+  <div class="games" role="group" aria-label="Pilih game">
+    <button class="gm" data-g="holdem" aria-pressed="true"><span class="st">♠</span><b>Texas Hold'em</b><small>Poker · 2–8 pemain</small></button>
+    <button class="gm" data-g="blackjack" aria-pressed="false"><span class="st">♥</span><b>Blackjack</b><small>Lawan dealer · 1–7 pemain</small></button>
+  </div>
+  <div class="box">
     <div class="row"><button id="mk">Buat meja</button></div>
     <div class="row">
       <input id="code" placeholder="Kode meja" maxlength="5" autocomplete="off" style="text-transform:uppercase">
       <button class="sec" id="jn">Gabung</button>
     </div>
   </div>
-  <div class="row"><button class="sec gd">Guide: cara bermain Texas Hold'em</button></div>
+  <div class="row"><button class="sec gd" id="gd">Guide: cara bermain</button></div>
   <div id="st"></div>
 </main>
+<script src="backend/config.js"></script>
 <script src="frontend/guide.js"></script>
 <script src="frontend/landing.js"></script>
 </body>
